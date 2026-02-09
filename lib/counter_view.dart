@@ -38,6 +38,11 @@ class _CounterViewState extends State<CounterView> {
               ),
             ),
             Text("Step: ${_controller.step}"),
+            Padding(
+              padding: EdgeInsetsGeometry.only(top:10),
+              child: Text("- Log -", style: TextStyle(color:Colors.blueGrey), textAlign: TextAlign.left,),
+              
+            ),
             for (String history in _controller.histories.reversed.take(5))
               _counterHistory(history)
           ]
@@ -63,9 +68,35 @@ class _CounterViewState extends State<CounterView> {
       ),
     );
   }
-}
+    // Helper for history
+  Widget _counterHistory(String history){
+    Color textColor = Colors.blueGrey;
+    String historyDate = history.split('|').first.replaceFirst('T', ' ');
+    String historyText = history.split('|').last;
 
-
-Widget _counterHistory(String history){
-  return Text(history);
+    if (historyText.startsWith("+")){
+      textColor = Colors.lightGreen;
+    }else if (historyText.startsWith("-")){
+      textColor = Colors.red;
+    }
+    
+    return Container(
+      margin: EdgeInsetsGeometry.only(top: 10),
+      padding: EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white, 
+        border: BoxBorder.all(width: .5, color: textColor) 
+      ),
+      child: Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start, 
+      children: [
+          Text(
+            historyDate, 
+            style: TextStyle(color: const Color.fromARGB(140, 55, 55, 55))),
+          Text(historyText, style: TextStyle(color: textColor),)
+        ]
+      )
+      );
+  }
 }
