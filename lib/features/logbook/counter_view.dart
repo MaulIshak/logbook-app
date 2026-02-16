@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:my_logbook_app/features/onboarding/onboarding_view.dart';
 import 'counter_controller.dart'; // Pastikan path import ini sesuai struktur folder Anda
 
 class CounterView extends StatefulWidget {
-  const CounterView({super.key});
+  final String username;
+  const CounterView({super.key, required this.username});
 
   @override
   State<CounterView> createState() => _CounterViewState();
@@ -13,6 +15,37 @@ class _CounterViewState extends State<CounterView> {
   final CounterController _controller = CounterController();
 
   @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  // Buat fungsi async terpisah agar kode bersih
+  Future<void> _loadInitialData() async {
+    await _controller.init(); // Tunggu loading dari disk selesai
+
+    // Cek 'mounted' untuk mencegah error jika user sudah keluar layar sebelum loading selesai
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _handleIncrement() async {
+    await _controller.increment();
+    setState(() {});
+  }
+
+  Future<void> _handleDecrement() async {
+    await _controller.decrement();
+    setState(() {});
+  }
+
+  Future<void> _handleReset() async {
+    await _controller.reset();
+    setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Menggunakan Theme data agar konsisten
     final textTheme = Theme.of(context).textTheme;
@@ -20,20 +53,74 @@ class _CounterViewState extends State<CounterView> {
     return Scaffold(
       backgroundColor: Colors.grey[100], // Background abu-abu muda
       appBar: AppBar(
-        title: const Text("Counter App"),
-        centerTitle: true,
+        title: Text("Logbook App: ${widget.username}"),
         elevation: 0,
         backgroundColor: Colors.blueGrey,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              // 1. Munculkan Dialog Konfirmasi
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: const Text("Konfirmasi Logout"),
+                    content: const Text(
+                      "Apakah Anda yakin? Data yang belum disimpan mungkin akan hilang.",
+                    ),
+                    actions: [
+                      // Tombol Batal
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.pop(context), // Menutup dialog saja
+                        child: const Text("Batal"),
+                      ),
+                      // Tombol Ya, Logout
+                      TextButton(
+                        onPressed: () {
+                          // Menutup dialog
+                          Navigator.pop(context);
+
+                          // 2. Navigasi kembali ke Onboarding (Membersihkan Stack)
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const OnboardingView(),
+                            ),
+                            (route) => false,
+                          );
+                        },
+                        child: const Text(
+                          "Ya, Keluar",
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Text(
+              "Selamat Datang, ${widget.username}",
+              style: TextStyle(
+                color: Colors.blueGrey,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
             // BAGIAN 1: DISPLAY UTAMA
             _buildCounterDisplay(textTheme),
-            
+
             const SizedBox(height: 20),
 
             // BAGIAN 2: KONTROL SLIDER
@@ -46,16 +133,23 @@ class _CounterViewState extends State<CounterView> {
               "Riwayat Aktivitas",
               style: textTheme.titleMedium?.copyWith(
                 color: Colors.blueGrey,
-                fontWeight: FontWeight.bold
+                fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 10),
-            
+
             // Render histories items
             if (_controller.histories.isEmpty)
-              const Center(child: Text("Belum ada data log.", style: TextStyle(color: Colors.grey)))
+              const Center(
+                child: Text(
+                  "Belum ada data log.",
+                  style: TextStyle(color: Colors.grey),
+                ),
+              )
             else
-              ..._controller.histories.reversed.take(5).map((item) => _CounterHistoriesTile(historiesData: item)),
+              ..._controller.histories.reversed
+                  .take(5)
+                  .map((item) => _CounterHistoriesTile(historiesData: item)),
           ],
         ),
       ),
@@ -78,18 +172,18 @@ class _CounterViewState extends State<CounterView> {
                 FloatingActionButton(
                   heroTag: "btn_dec",
                   backgroundColor: Colors.red[400],
-                  onPressed: () => setState(() => _controller.decrement()),
+                  onPressed: () => _handleDecrement(),
                   child: const Icon(Icons.remove, color: Colors.white),
                 ),
                 const SizedBox(width: 15),
                 FloatingActionButton(
                   heroTag: "btn_inc",
                   backgroundColor: Colors.green[400],
-                  onPressed: () => setState(() => _controller.increment()),
+                  onPressed: () => _handleIncrement(),
                   child: const Icon(Icons.add, color: Colors.white),
                 ),
               ],
-            )
+            ),
           ],
         ),
       ),
@@ -105,7 +199,10 @@ class _CounterViewState extends State<CounterView> {
         padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
         child: Column(
           children: [
-            Text("Total Hitungan", style: textTheme.labelLarge?.copyWith(color: Colors.grey)),
+            Text(
+              "Total Hitungan",
+              style: textTheme.labelLarge?.copyWith(color: Colors.grey),
+            ),
             const SizedBox(height: 10),
             Text(
               '${_controller.value}',
@@ -131,7 +228,7 @@ class _CounterViewState extends State<CounterView> {
             Chip(
               label: Text("${_controller.step}"),
               backgroundColor: Colors.blueGrey[50],
-            )
+            ),
           ],
         ),
         Slider(
@@ -181,10 +278,8 @@ class _CounterViewState extends State<CounterView> {
     );
 
     if (shouldReset == true) {
-      setState(() {
-        _controller.reset();
-      });
-      
+      await _handleReset();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -211,9 +306,13 @@ class _CounterHistoriesTile extends StatelessWidget {
 
     final isIncrement = action.startsWith("+");
     final isDecrement = action.startsWith("-");
-    
-    final Color statusColor = isIncrement ? Colors.green : (isDecrement ? Colors.red : Colors.grey);
-    final IconData statusIcon = isIncrement ? Icons.arrow_upward : (isDecrement ? Icons.arrow_downward : Icons.info_outline);
+
+    final Color statusColor = isIncrement
+        ? Colors.green
+        : (isDecrement ? Colors.red : Colors.grey);
+    final IconData statusIcon = isIncrement
+        ? Icons.arrow_upward
+        : (isDecrement ? Icons.arrow_downward : Icons.info_outline);
     final String displayDate = rawDate.replaceFirst('T', ' ').split('.').first;
 
     return Card(
@@ -221,7 +320,6 @@ class _CounterHistoriesTile extends StatelessWidget {
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(
-        // Menggunakan withValues (New Flutter API) sesuai request Anda
         side: BorderSide(color: statusColor.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
