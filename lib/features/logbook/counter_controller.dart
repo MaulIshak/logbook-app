@@ -3,10 +3,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CounterController {
   int _counter = 0; // _ for private
   int step = 1;
-
   int get value => _counter; // getter
-
   List<String> histories = [];
+  String username;
+  CounterController({required this.username});
 
   Future<void> init() async {
     _counter = await loadLastValue();
@@ -56,24 +56,24 @@ class CounterController {
   // Fungsi untuk menyimpan angka terakhir
   Future<void> saveLastValue() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('last_counter', _counter);
+    await prefs.setInt('${username}_last_counter', _counter);
     // 'last_counter' adalah Kunci (Key) untuk memanggil data nanti
   }
 
   Future<int> loadLastValue() async {
     final prefs = await SharedPreferences.getInstance();
     // Ambil nilai berdasarkan Key, jika kosong (null) berikan nilai default 0
-    return prefs.getInt('last_counter') ?? 0;
+    return prefs.getInt('${username}_last_counter') ?? 0;
   }
 
   Future<void> saveHistories() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('histories', histories);
+    await prefs.setStringList('${username}_histories', histories);
   }
 
   Future<List<String>> loadHistories() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList('histories') ?? [];
+    return prefs.getStringList('${username}_histories') ?? [];
   }
 
   Future<void> saveAll() async {

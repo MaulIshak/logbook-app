@@ -12,7 +12,9 @@ class CounterView extends StatefulWidget {
 
 class _CounterViewState extends State<CounterView> {
   // Instansiasi controller
-  final CounterController _controller = CounterController();
+  late final CounterController _controller = CounterController(
+    username: widget.username,
+  );
 
   @override
   void initState() {
@@ -53,9 +55,12 @@ class _CounterViewState extends State<CounterView> {
     return Scaffold(
       backgroundColor: Colors.grey[100], // Background abu-abu muda
       appBar: AppBar(
-        title: Text("Logbook App: ${widget.username}"),
+        title: Text(
+          "Logbook App: ${widget.username}",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         elevation: 0,
-        backgroundColor: Colors.blueGrey,
+        backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -111,13 +116,15 @@ class _CounterViewState extends State<CounterView> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              "Selamat Datang, ${widget.username}",
+              "Selamat Datang,\n${widget.username} 👋",
               style: TextStyle(
-                color: Colors.blueGrey,
+                fontSize: 28,
+                color: Colors.blue,
                 fontWeight: FontWeight.bold,
               ),
-              textAlign: TextAlign.center,
+              textAlign: TextAlign.left,
             ),
+            SizedBox(height: 28),
             // BAGIAN 1: DISPLAY UTAMA
             _buildCounterDisplay(textTheme),
 
@@ -232,8 +239,8 @@ class _CounterViewState extends State<CounterView> {
           ],
         ),
         Slider(
-          activeColor: Colors.blueGrey,
-          inactiveColor: Colors.blueGrey[100],
+          activeColor: Colors.blue,
+          inactiveColor: Colors.blue[100],
           value: _controller.step.toDouble(),
           min: 0.0,
           max: 100.0,
