@@ -91,14 +91,58 @@ class _LogViewState extends State<LogView> {
         child: Column(
           children: [
             SizedBox(height: 16),
-            CupertinoTextField(
-              onChanged: (value) => _controller.searchLog(value),
-              placeholder: "Cari Catatan...",
-              prefix: Icon(Icons.search),
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: CupertinoTextField(
+                      onChanged: (value) => _controller.searchLog(value),
+                      placeholder: "Cari Catatan...",
+                      prefix: const Padding(
+                        padding: EdgeInsets.only(left: 8.0),
+                        child: Icon(Icons.search, color: Colors.grey),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      onChanged: (value) => _controller.filterLog(value!),
+                      items: _controller.categories
+                          .map(
+                            (category) => DropdownMenuItem(
+                              value: category,
+                              child: Text(
+                                category,
+                                style: const TextStyle(fontSize: 14),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        hintText: "Kategori",
+                      ),
+                      validator: (value) => value == null ? "Pilih" : null,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
@@ -130,7 +174,16 @@ class _LogViewState extends State<LogView> {
                           title: Text(log.title),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [Text(log.description), Text(log.date)],
+                            children: [
+                              Text(
+                                log.category,
+                                style: TextStyle(
+                                  color: getCategoryColor(log.category),
+                                ),
+                              ),
+                              Text(log.description),
+                              Text(log.date),
+                            ],
                           ),
                           trailing: Wrap(
                             children: [
@@ -149,7 +202,7 @@ class _LogViewState extends State<LogView> {
                                   Icons.delete,
                                   color: Colors.red,
                                 ),
-                                onPressed: () => _showDeleteLogDialog(index),
+                                onPressed: () => _showDeleteLogDialog(log),
                               ),
                             ],
                           ),
@@ -173,8 +226,12 @@ class _LogViewState extends State<LogView> {
   // 1. Tambahkan Controller untuk menangkap input di dalam State
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
+  String? selectedCategory;
 
   void _showAddLogDialog() {
+    selectedCategory = null;
+    _titleController.clear();
+    _contentController.clear();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -198,6 +255,21 @@ class _LogViewState extends State<LogView> {
                     ? "Deskripsi tidak boleh kosong"
                     : null,
               ),
+              DropdownButtonFormField<String>(
+                initialValue: selectedCategory,
+                onChanged: (value) => setState(() => selectedCategory = value),
+                items: _controller.categories
+                    .map(
+                      (category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(category),
+                      ),
+                    )
+                    .toList(),
+                decoration: const InputDecoration(hintText: "Kategori"),
+                validator: (value) =>
+                    value == null ? "Kategori harus dipilih" : null,
+              ),
             ],
           ),
         ),
@@ -215,6 +287,7 @@ class _LogViewState extends State<LogView> {
                 _titleController.text,
                 _contentController.text,
                 widget.username,
+                selectedCategory!,
               );
 
               // Trigger UI Refresh
@@ -235,6 +308,7 @@ class _LogViewState extends State<LogView> {
   void _showEditLogDialog(int index, LogModel log) {
     _titleController.text = log.title;
     _contentController.text = log.description;
+    selectedCategory = log.category;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -258,6 +332,21 @@ class _LogViewState extends State<LogView> {
                     ? "Deskripsi tidak boleh kosong"
                     : null,
               ),
+              DropdownButtonFormField<String>(
+                initialValue: selectedCategory,
+                onChanged: (value) => setState(() => selectedCategory = value),
+                items: _controller.categories
+                    .map(
+                      (category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(category),
+                      ),
+                    )
+                    .toList(),
+                decoration: const InputDecoration(hintText: "Kategori"),
+                validator: (value) =>
+                    value == null ? "Kategori harus dipilih" : null,
+              ),
             ],
           ),
         ),
@@ -274,6 +363,7 @@ class _LogViewState extends State<LogView> {
                 _titleController.text,
                 _contentController.text,
                 widget.username,
+                selectedCategory!,
               );
               _titleController.clear();
               _contentController.clear();
@@ -286,7 +376,7 @@ class _LogViewState extends State<LogView> {
     );
   }
 
-  void _showDeleteLogDialog(int index) {
+  void _showDeleteLogDialog(LogModel log) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -299,7 +389,7 @@ class _LogViewState extends State<LogView> {
           ),
           ElevatedButton(
             onPressed: () {
-              _controller.removeLog(index);
+              _controller.removeLog(log);
               Navigator.pop(context);
             },
             child: const Text("Hapus", style: TextStyle(color: Colors.red)),
@@ -307,5 +397,22 @@ class _LogViewState extends State<LogView> {
         ],
       ),
     );
+  }
+
+  Color getCategoryColor(String category) {
+    switch (category) {
+      case 'Personal':
+        return Colors.blue;
+      case 'Work':
+        return Colors.green;
+      case 'Study':
+        return Colors.orange;
+      case 'Health':
+        return Colors.purple;
+      case 'Travel':
+        return Colors.pink;
+      default:
+        return Colors.grey;
+    }
   }
 }

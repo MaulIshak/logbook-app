@@ -3,12 +3,14 @@ class LogModel {
   final String date;
   final String description;
   final String username;
+  final String category;
 
   LogModel({
     required this.title,
     required this.date,
     required this.description,
     required this.username,
+    required this.category,
   });
 
   // Untuk Tugas HOTS: Konversi Map (JSON) ke Object
@@ -18,6 +20,7 @@ class LogModel {
       date: map['date'],
       description: map['description'],
       username: map['username'],
+      category: map['category'] ?? 'Other',
     );
   }
 
@@ -28,6 +31,7 @@ class LogModel {
       'date': date,
       'description': description,
       'username': username,
+      'category': category,
     };
   }
 }

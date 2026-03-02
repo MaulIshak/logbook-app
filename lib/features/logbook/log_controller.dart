@@ -6,8 +6,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 class LogController {
   final ValueNotifier<List<LogModel>> logsNotifier = ValueNotifier([]);
   static const String _storageKey = 'user_logs_data';
-
   final ValueNotifier<List<LogModel>> _logsBufferNotifier = ValueNotifier([]);
+  String _activeCategory = 'All'; // Track filter kategori yang sedang aktif
+  final List<String> categories = [
+    'Personal',
+    'Work',
+    'Study',
+    'Health',
+    'Travel',
+    'Other',
+    'All',
+  ];
 
   LogController(String username) {
     loadFromDisk(username);
@@ -30,36 +39,62 @@ class LogController {
     }
   }
 
-  void addLog(String title, String desc, String username) {
+  void filterLog(String category) {
+    _activeCategory = category; // Simpan filter aktif
+    if (category.isEmpty || category == "All") {
+      logsNotifier.value = _logsBufferNotifier.value;
+    } else {
+      final filteredLogs = _logsBufferNotifier.value.where((log) {
+        final categoryMatch = log.category.toLowerCase().contains(
+          category.toLowerCase(),
+        );
+        return categoryMatch;
+      }).toList();
+      logsNotifier.value = filteredLogs;
+    }
+  }
+
+  void addLog(String title, String desc, String username, String category) {
     final newLog = LogModel(
       title: title,
       description: desc,
       date: DateTime.now().toString(),
       username: username,
+      category: category,
     );
     _logsBufferNotifier.value = [..._logsBufferNotifier.value, newLog];
     logsNotifier.value = _logsBufferNotifier.value;
     saveToDisk();
   }
 
-  void updateLog(int index, String title, String desc, String username) {
+  void updateLog(
+    int index,
+    String title,
+    String desc,
+    String username,
+    String category,
+  ) {
     final currentLogs = List<LogModel>.from(_logsBufferNotifier.value);
     currentLogs[index] = LogModel(
       title: title,
       description: desc,
       date: DateTime.now().toString(),
       username: username,
+      category: category,
     );
     _logsBufferNotifier.value = currentLogs;
     logsNotifier.value = _logsBufferNotifier.value;
     saveToDisk();
   }
 
-  void removeLog(int index) {
+  void removeLog(LogModel logToRemove) {
+    // Hapus berdasarkan referensi object, bukan index,
+    // agar tidak salah hapus saat ada filter aktif
     final currentLogs = List<LogModel>.from(_logsBufferNotifier.value);
-    currentLogs.removeAt(index);
+    currentLogs.remove(logToRemove);
     _logsBufferNotifier.value = currentLogs;
-    logsNotifier.value = _logsBufferNotifier.value;
+    // Re-apply filter yang sedang aktif setelah menghapus
+    filterLog(_activeCategory);
     saveToDisk();
   }
 
