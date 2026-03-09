@@ -64,7 +64,7 @@ class MongoService {
   }
 
   /// READ: Mengambil data dari Cloud
-  Future<List<LogModel>> getLogs(String username) async {
+  Future<List<LogModel>> getLogs(String teamId) async {
     try {
       final collection = await _getSafeCollection(); // Gunakan jalur aman
 
@@ -76,7 +76,7 @@ class MongoService {
 
       final List<Map<String, dynamic>> data = await collection
           .find()
-          .where((e) => e['username'] == username)
+          .where((e) => e['teamId'] == teamId)
           .toList();
       return data.map((json) => LogModel.fromMap(json)).toList();
     } catch (e) {
@@ -114,10 +114,11 @@ class MongoService {
   Future<void> updateLog(LogModel log) async {
     try {
       final collection = await _getSafeCollection();
-      if (log.id == null)
+      if (log.id == null) {
         throw Exception("ID Log tidak ditemukan untuk update");
+      }
 
-      await collection.replaceOne(where.id(log.id!), log.toMap());
+      await collection.replaceOne(where.id(log.id! as ObjectId), log.toMap());
 
       await LogHelper.writeLog(
         "DATABASE: Update '${log.title}' Berhasil",

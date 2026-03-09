@@ -29,7 +29,10 @@ class _LoginViewState extends State<LoginView> {
       if (_controller.login(user, pass)) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => LogView(username: user)),
+          MaterialPageRoute(
+            builder: (context) =>
+                LogView(currentUser: _controller.getUser(user)),
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

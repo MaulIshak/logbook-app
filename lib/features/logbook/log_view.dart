@@ -1,14 +1,16 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:my_logbook_app/features/auth/models/user_model.dart';
 import 'package:my_logbook_app/features/logbook/log_controller.dart';
+import 'package:my_logbook_app/features/logbook/log_editor_page.dart';
 import 'package:my_logbook_app/features/logbook/models/log_model.dart';
 import 'package:my_logbook_app/features/onboarding/onboarding_view.dart';
 import 'package:my_logbook_app/helper/log_helper.dart';
 import 'package:my_logbook_app/services/mongo_service.dart';
 
 class LogView extends StatefulWidget {
-  final String username;
-  const LogView({super.key, required this.username});
+  final UserModel currentUser;
+  const LogView({super.key, required this.currentUser});
 
   @override
   State<LogView> createState() => _LogViewState();
@@ -16,7 +18,9 @@ class LogView extends StatefulWidget {
 
 class _LogViewState extends State<LogView> {
   // Instansiasi controller
-  late final LogController _controller = LogController(widget.username);
+  late final LogController _controller = LogController(
+    widget.currentUser.teamId,
+  );
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
 
@@ -61,7 +65,7 @@ class _LogViewState extends State<LogView> {
         source: "log_view.dart",
       );
 
-      await _controller.loadFromDisk(widget.username);
+      await _controller.loadFromDisk(widget.currentUser.username);
 
       await LogHelper.writeLog(
         "UI: Data berhasil dimuat ke Notifier.",
@@ -86,17 +90,29 @@ class _LogViewState extends State<LogView> {
     }
   }
 
+  // Navigasi ke Halaman Editor (Gantikan Dialog Lama)
+  void _goToEditor({LogModel? log, int? index}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LogEditorPage(
+          log: log,
+          index: index,
+          controller: _controller,
+          currentUser: widget.currentUser,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Menggunakan Theme data agar konsisten
-    final textTheme = Theme.of(context).textTheme;
-
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.white, // Background abu-abu muda
       appBar: AppBar(
         title: Text(
-          "Logbook App: ${widget.username}",
+          "Logbook App: ${widget.currentUser.username}",
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
@@ -154,7 +170,6 @@ class _LogViewState extends State<LogView> {
         child: Column(
           children: [
             SizedBox(height: 16),
-
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Row(
@@ -162,7 +177,7 @@ class _LogViewState extends State<LogView> {
                   Expanded(
                     flex: 3,
                     child: CupertinoTextField(
-                      // onChanged: (value) => _controller.searchLog(value),
+                      onChanged: (value) => _controller.searchLog(value),
                       placeholder: "Cari Catatan...",
                       prefix: const Padding(
                         padding: EdgeInsets.only(left: 8.0),
@@ -180,7 +195,13 @@ class _LogViewState extends State<LogView> {
                     flex: 2,
                     child: DropdownButtonFormField<String>(
                       isExpanded: true,
-                      onChanged: (value) => 0,
+                      initialValue: _controller.filterCategory,
+                      onChanged: (value) {
+                        if (value != null) {
+                          _controller.filterLogByCategory(value);
+                          setState(() {});
+                        }
+                      },
                       items: _controller.categories
                           .map(
                             (category) => DropdownMenuItem(
@@ -202,7 +223,6 @@ class _LogViewState extends State<LogView> {
                         ),
                         hintText: "Kategori",
                       ),
-                      validator: (value) => value == null ? "Pilih" : null,
                     ),
                   ),
                 ],
@@ -229,15 +249,15 @@ class _LogViewState extends State<LogView> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.cloud_off,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
+                        Image(image: AssetImage("assets/images/empty.png")),
                         const SizedBox(height: 16),
                         const Text("Belum ada catatan di Cloud."),
                         ElevatedButton(
-                          onPressed: _showAddLogDialog,
+                          onPressed: () => _goToEditor(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
                           child: const Text("Buat Catatan Pertama"),
                         ),
                       ],
@@ -262,7 +282,9 @@ class _LogViewState extends State<LogView> {
                 return Expanded(
                   child: RefreshIndicator(
                     onRefresh: () async {
-                      await _controller.loadFromDisk(widget.username);
+                      await _controller.loadFromDisk(
+                        widget.currentUser.username,
+                      );
                     },
                     child: ListView.builder(
                       itemCount: currentLogs.length,
@@ -292,9 +314,9 @@ class _LogViewState extends State<LogView> {
                                     Icons.edit,
                                     color: Colors.blue,
                                   ),
-                                  onPressed: () => _showEditLogDialog(
-                                    index,
-                                    log,
+                                  onPressed: () => _goToEditor(
+                                    log: log,
+                                    index: index,
                                   ), // Fungsi edit
                                 ),
                                 IconButton(
@@ -318,7 +340,9 @@ class _LogViewState extends State<LogView> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddLogDialog, // Panggil fungsi dialog yang baru dibuat
+        // onPressed: _showAddLogDialog,
+        onPressed: () =>
+            _goToEditor(), // Panggil fungsi dialog yang baru dibuat
         child: const Icon(Icons.add),
       ),
     );
@@ -387,7 +411,9 @@ class _LogViewState extends State<LogView> {
               _controller.addLog(
                 _titleController.text,
                 _contentController.text,
-                widget.username,
+                selectedCategory!,
+                widget.currentUser.username,
+                widget.currentUser.teamId,
               );
 
               // Trigger UI Refresh
@@ -462,7 +488,9 @@ class _LogViewState extends State<LogView> {
                 index,
                 _titleController.text,
                 _contentController.text,
-                widget.username,
+                selectedCategory!,
+                widget.currentUser.username,
+                widget.currentUser.teamId,
               );
               _titleController.clear();
               _contentController.clear();

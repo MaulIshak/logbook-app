@@ -1,5 +1,6 @@
 import 'dart:convert'; // Wajib ditambahkan untuk jsonEncode & jsonDecode
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/adapters.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mongo_dart/mongo_dart.dart';
 import 'package:my_logbook_app/features/logbook/models/log_model.dart';
@@ -7,10 +8,14 @@ import 'package:my_logbook_app/services/mongo_service.dart';
 import 'package:my_logbook_app/helper/log_helper.dart';
 
 class LogController {
-  final String username;
+  final String teamId;
 
   final ValueNotifier<List<LogModel>> logsNotifier =
       ValueNotifier<List<LogModel>>([]);
+
+  List<LogModel> _allLogs = [];
+  String searchQuery = "";
+  String filterCategory = "All";
 
   // Kunci unik untuk penyimpanan lokal di Shared Preferences
   static const String _storageKey = 'user_logs_data';
@@ -18,10 +23,12 @@ class LogController {
   // Getter untuk mempermudah akses list data saat ini
   List<LogModel> get logs => logsNotifier.value;
 
+  final _myBox = Hive.box<LogModel>('offline_logs');
+
   // --- BARU: KONSTRUKTOR ---
   // Saat Controller dibuat, ia otomatis mencoba mengambil data lama
-  LogController(this.username) {
-    loadFromDisk(this.username);
+  LogController(this.teamId) {
+    loadFromDisk(teamId);
   }
 
   final List<String> categories = [
@@ -35,24 +42,32 @@ class LogController {
   ];
 
   // 1. Menambah data ke Cloud
-  Future<void> addLog(String title, String desc, String category) async {
+  Future<void> addLog(
+    String title,
+    String desc,
+    String category,
+    String username,
+    String teamId,
+  ) async {
     final newLog = LogModel(
-      id: ObjectId(),
+      id: ObjectId().oid,
       title: title,
       description: desc,
       date: DateTime.now(),
       username: username,
       category: category,
+      teamId: teamId,
     );
+    await _myBox.add(newLog);
+    logsNotifier.value = [...logsNotifier.value, newLog];
 
     try {
       // 2. Kirim ke MongoDB Atlas
       await MongoService().insertLog(newLog);
 
       // 3. Update UI Lokal (Data sekarang sudah punya ID asli)
-      final currentLogs = List<LogModel>.from(logsNotifier.value);
-      currentLogs.add(newLog);
-      logsNotifier.value = currentLogs;
+      _allLogs.add(newLog);
+      _applyFilters();
 
       await LogHelper.writeLog(
         "SUCCESS: Tambah data dengan ID lokal",
@@ -63,22 +78,35 @@ class LogController {
     }
   }
 
-  // void searchLog(String query) {
-  //   if (query.isEmpty || query == "") {
-  //     logsNotifier.value = logsNotifier.value;
-  //   } else {
-  //     final filteredLogs = logsNotifier.value.where((log) {
-  //       final titleMatch = log.title.toLowerCase().contains(
-  //         query.toLowerCase(),
-  //       );
-  //       final descMatch = log.description.toLowerCase().contains(
-  //         query.toLowerCase(),
-  //       );
-  //       return titleMatch || descMatch;
-  //     }).toList();
-  //     logsNotifier.value = filteredLogs;
-  //   }
-  // }
+  void searchLog(String query) {
+    searchQuery = query;
+    _applyFilters();
+  }
+
+  void filterLogByCategory(String category) {
+    filterCategory = category;
+    _applyFilters();
+  }
+
+  void _applyFilters() {
+    var filtered = _allLogs;
+    if (filterCategory != "All") {
+      filtered = filtered.where((l) => l.category == filterCategory).toList();
+    }
+    if (searchQuery.isNotEmpty) {
+      filtered = filtered.where((log) {
+        final titleMatch = log.title.toLowerCase().contains(
+          searchQuery.toLowerCase(),
+        );
+        final descMatch = log.description.toLowerCase().contains(
+          searchQuery.toLowerCase(),
+        );
+        return titleMatch || descMatch;
+      }).toList();
+    }
+    // IMPORTANT: Assign list baru agar ValueNotifier bisa merespons perubahaan (Reactive)
+    logsNotifier.value = List.from(filtered);
+  }
 
   // 2. Memperbarui data di Cloud (HOTS: Sinkronisasi Terjamin)
   Future<void> updateLog(
@@ -86,9 +114,10 @@ class LogController {
     String newTitle,
     String newDesc,
     String category,
+    String username,
+    String role,
   ) async {
-    final currentLogs = List<LogModel>.from(logsNotifier.value);
-    final oldLog = currentLogs[index];
+    final oldLog = logsNotifier.value[index];
 
     final updatedLog = LogModel(
       id: oldLog.id, // ID harus tetap sama agar MongoDB mengenali dokumen ini
@@ -97,6 +126,7 @@ class LogController {
       date: DateTime.now(),
       username: username,
       category: category,
+      teamId: '',
     );
 
     try {
@@ -104,8 +134,11 @@ class LogController {
       await MongoService().updateLog(updatedLog);
 
       // 2. Jika sukses, baru perbarui state lokal
-      currentLogs[index] = updatedLog;
-      logsNotifier.value = currentLogs;
+      final allIndex = _allLogs.indexWhere((l) => l.id == oldLog.id);
+      if (allIndex != -1) {
+        _allLogs[allIndex] = updatedLog;
+      }
+      _applyFilters();
 
       await LogHelper.writeLog(
         "SUCCESS: Sinkronisasi Update '${oldLog.title}' Berhasil",
@@ -124,8 +157,6 @@ class LogController {
 
   // 3. Menghapus data dari Cloud (HOTS: Sinkronisasi Terjamin)```dart
   Future<void> removeLog(LogModel log) async {
-    final currentLogs = List<LogModel>.from(logsNotifier.value);
-
     try {
       if (log.id == null) {
         throw Exception(
@@ -134,11 +165,11 @@ class LogController {
       }
 
       // 1. Hapus data di MongoDB Atlas (Tunggu konfirmasi Cloud)
-      await MongoService().deleteLog(log.id!);
+      await MongoService().deleteLog(log.id! as ObjectId);
 
       // 2. Jika sukses, baru hapus dari state lokal
-      currentLogs.removeWhere((item) => item.id == log.id);
-      logsNotifier.value = currentLogs;
+      _allLogs.removeWhere((item) => item.id == log.id);
+      _applyFilters();
 
       await LogHelper.writeLog(
         "SUCCESS: Sinkronisasi Hapus '${log.title}' Berhasil",
@@ -167,9 +198,10 @@ class LogController {
   }
 
   // Ganti pemanggilan SharedPreferences menjadi MongoService
-  Future<void> loadFromDisk(String username) async {
+  Future<void> loadFromDisk(String teamId) async {
     // Mengambil dari Cloud, bukan lokal
-    final cloudData = await MongoService().getLogs(username);
-    logsNotifier.value = cloudData;
+    final cloudData = await MongoService().getLogs(teamId);
+    _allLogs = cloudData;
+    _applyFilters();
   }
 }
