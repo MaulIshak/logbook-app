@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:my_logbook_app/features/logbook/log_controller.dart';
 import 'package:my_logbook_app/features/logbook/models/log_model.dart';
 import 'package:my_logbook_app/features/onboarding/onboarding_view.dart';
+import 'package:my_logbook_app/helper/log_helper.dart';
+import 'package:my_logbook_app/services/mongo_service.dart';
 
 class LogView extends StatefulWidget {
   final String username;
@@ -16,11 +18,72 @@ class _LogViewState extends State<LogView> {
   // Instansiasi controller
   late final LogController _controller = LogController(widget.username);
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _controller.loadFromDisk(widget.username);
+
+    // Memberikan kesempatan UI merender widget awal sebelum proses berat dimulai
+    Future.microtask(() => _initDatabase());
+  }
+
+  Future<void> _initDatabase() async {
+    setState(() => _isLoading = true);
+    try {
+      await LogHelper.writeLog(
+        "UI: Memulai inisialisasi database...",
+        source: "log_view.dart",
+      );
+
+      // Mencoba koneksi ke MongoDB Atlas (Cloud)
+      await LogHelper.writeLog(
+        "UI: Menghubungi MongoService.connect()...",
+        source: "log_view.dart",
+      );
+
+      // Mengaktifkan kembali koneksi dengan timeout 15 detik (lebih longgar untuk sinyal HP)
+      await MongoService().connect().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception(
+          "Koneksi Cloud Timeout. Periksa sinyal/IP Whitelist.",
+        ),
+      );
+
+      await LogHelper.writeLog(
+        "UI: Koneksi MongoService BERHASIL.",
+        source: "log_view.dart",
+      );
+
+      // Mengambil data log dari Cloud
+      await LogHelper.writeLog(
+        "UI: Memanggil controller.loadFromDisk()...",
+        source: "log_view.dart",
+      );
+
+      await _controller.loadFromDisk(widget.username);
+
+      await LogHelper.writeLog(
+        "UI: Data berhasil dimuat ke Notifier.",
+        source: "log_view.dart",
+      );
+    } catch (e) {
+      await LogHelper.writeLog(
+        "UI: Error - $e",
+        source: "log_view.dart",
+        level: 1,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Masalah: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      // 2. INILAH FINALLY: Apapun yang terjadi (Sukses/Gagal/Data Kosong), loading harus mati
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -99,7 +162,7 @@ class _LogViewState extends State<LogView> {
                   Expanded(
                     flex: 3,
                     child: CupertinoTextField(
-                      onChanged: (value) => _controller.searchLog(value),
+                      // onChanged: (value) => _controller.searchLog(value),
                       placeholder: "Cari Catatan...",
                       prefix: const Padding(
                         padding: EdgeInsets.only(left: 8.0),
@@ -117,7 +180,7 @@ class _LogViewState extends State<LogView> {
                     flex: 2,
                     child: DropdownButtonFormField<String>(
                       isExpanded: true,
-                      onChanged: (value) => _controller.filterLog(value!),
+                      onChanged: (value) => 0,
                       items: _controller.categories
                           .map(
                             (category) => DropdownMenuItem(
@@ -149,66 +212,104 @@ class _LogViewState extends State<LogView> {
             ValueListenableBuilder<List<LogModel>>(
               valueListenable: _controller.logsNotifier,
               builder: (context, currentLogs, child) {
+                if (_isLoading) {
+                  return const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text("Menghubungkan ke MongoDB Atlas..."),
+                      ],
+                    ),
+                  );
+                }
                 if (currentLogs.isEmpty) {
                   return Center(
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Image(image: AssetImage("assets/images/empty.png")),
-                        Text(
-                          "Belum ada catatan",
-                          style: textTheme.headlineSmall,
+                        const Icon(
+                          Icons.cloud_off,
+                          size: 64,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text("Belum ada catatan di Cloud."),
+                        ElevatedButton(
+                          onPressed: _showAddLogDialog,
+                          child: const Text("Buat Catatan Pertama"),
                         ),
                       ],
                     ),
                   );
                 }
+
+                // if (currentLogs.isEmpty) {
+                //   return Center(
+                //     child: Column(
+                //       mainAxisAlignment: MainAxisAlignment.center,
+                //       children: [
+                //         Image(image: AssetImage("assets/images/empty.png")),
+                //         Text(
+                //           "Belum ada catatan",
+                //           style: textTheme.headlineSmall,
+                //         ),
+                //       ],
+                //     ),
+                //   );
+                // }
                 return Expanded(
-                  child: ListView.builder(
-                    itemCount: currentLogs.length,
-                    itemBuilder: (context, index) {
-                      final log = currentLogs[index];
-                      return Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.note),
-                          title: Text(log.title),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                log.category,
-                                style: TextStyle(
-                                  color: getCategoryColor(log.category),
-                                ),
-                              ),
-                              Text(log.description),
-                              Text(log.date),
-                            ],
-                          ),
-                          trailing: Wrap(
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.edit,
-                                  color: Colors.blue,
-                                ),
-                                onPressed: () => _showEditLogDialog(
-                                  index,
-                                  log,
-                                ), // Fungsi edit
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () => _showDeleteLogDialog(log),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      await _controller.loadFromDisk(widget.username);
                     },
+                    child: ListView.builder(
+                      itemCount: currentLogs.length,
+                      itemBuilder: (context, index) {
+                        final log = currentLogs[index];
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.note),
+                            title: Text(log.title),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  log.category,
+                                  style: TextStyle(
+                                    color: getCategoryColor(log.category),
+                                  ),
+                                ),
+                                Text(log.description),
+                                Text(log.date.toString()),
+                              ],
+                            ),
+                            trailing: Wrap(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.edit,
+                                    color: Colors.blue,
+                                  ),
+                                  onPressed: () => _showEditLogDialog(
+                                    index,
+                                    log,
+                                  ), // Fungsi edit
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () => _showDeleteLogDialog(log),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 );
               },
@@ -287,7 +388,6 @@ class _LogViewState extends State<LogView> {
                 _titleController.text,
                 _contentController.text,
                 widget.username,
-                selectedCategory!,
               );
 
               // Trigger UI Refresh
@@ -363,7 +463,6 @@ class _LogViewState extends State<LogView> {
                 _titleController.text,
                 _contentController.text,
                 widget.username,
-                selectedCategory!,
               );
               _titleController.clear();
               _contentController.clear();
