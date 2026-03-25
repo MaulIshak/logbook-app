@@ -1,7 +1,5 @@
-import 'dart:convert'; // Wajib ditambahkan untuk jsonEncode & jsonDecode
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/adapters.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mongo_dart/mongo_dart.dart';
 import 'package:my_logbook_app/features/logbook/models/log_model.dart';
 import 'package:my_logbook_app/services/mongo_service.dart';
@@ -9,27 +7,21 @@ import 'package:my_logbook_app/helper/log_helper.dart';
 
 class LogController {
   final String teamId;
+  final String username; // username user yang sedang login
 
   final ValueNotifier<List<LogModel>> logsNotifier =
       ValueNotifier<List<LogModel>>([]);
 
   List<LogModel> _allLogs = [];
-  String searchQuery = "";
-  String filterCategory = "All";
+  String searchQuery = '';
+  String filterCategory = 'All';
 
-  // Kunci unik untuk penyimpanan lokal di Shared Preferences
-  static const String _storageKey = 'user_logs_data';
-
-  // Getter untuk mempermudah akses list data saat ini
   List<LogModel> get logs => logsNotifier.value;
 
   final _myBox = Hive.box<LogModel>('offline_logs');
+  final _pendingDeletesBox = Hive.box<String>('pending_deletes');
 
-  // --- BARU: KONSTRUKTOR ---
-  // Saat Controller dibuat, ia otomatis mencoba mengambil data lama
-  LogController(this.teamId) {
-    loadFromDisk(teamId);
-  }
+  LogController(this.teamId, this.username);
 
   final List<String> categories = [
     'Personal',
@@ -41,42 +33,236 @@ class LogController {
     'All',
   ];
 
-  // 1. Menambah data ke Cloud
+  // ============================================================
+  // CRUD OPERATIONS — Local-first, dengan sync jika online
+  // ============================================================
+
+  /// Tambah log. Selalu simpan ke Hive dulu.
+  /// Jika [isOnline] = true, langsung upload ke cloud dan tandai synced.
+  /// Jika offline, simpan dengan isSynced = false (akan sync nanti).
   Future<void> addLog(
     String title,
     String desc,
     String category,
-    String username,
-    String teamId,
-  ) async {
+    String logUsername,
+    String logTeamId, {
+    bool isOnline = true,
+    bool isPublic = false,
+  }) async {
     final newLog = LogModel(
       id: ObjectId().oid,
       title: title,
       description: desc,
       date: DateTime.now(),
-      username: username,
+      username: logUsername,
       category: category,
-      teamId: teamId,
+      teamId: logTeamId,
+      isSynced: false,
+      isPublic: isPublic,
     );
+
     await _myBox.add(newLog);
-    logsNotifier.value = [...logsNotifier.value, newLog];
+    _allLogs.add(newLog);
+    _applyFilters();
+
+    if (!isOnline) {
+      await LogHelper.writeLog(
+        'OFFLINE: Log disimpan lokal (pending sync)',
+        source: 'log_controller.dart',
+        level: 2,
+      );
+      return;
+    }
 
     try {
-      // 2. Kirim ke MongoDB Atlas
       await MongoService().insertLog(newLog);
-
-      // 3. Update UI Lokal (Data sekarang sudah punya ID asli)
-      _allLogs.add(newLog);
-      _applyFilters();
-
+      await _updateHiveSyncStatus(newLog.id!, isSynced: true);
       await LogHelper.writeLog(
-        "SUCCESS: Tambah data dengan ID lokal",
-        source: "log_controller.dart",
+        "SYNCED: Log '${newLog.title}' berhasil ke cloud",
+        source: 'log_controller.dart',
+        level: 2,
       );
     } catch (e) {
-      await LogHelper.writeLog("ERROR: Gagal sinkronisasi Add - $e", level: 1);
+      await LogHelper.writeLog(
+        'OFFLINE: Upload gagal, Log tersimpan lokal — $e',
+        source: 'log_controller.dart',
+        level: 1,
+      );
     }
   }
+
+  /// Update log. Simpan ke Hive dulu, lalu sync ke cloud jika online.
+  Future<void> updateLog(
+    int index,
+    String newTitle,
+    String newDesc,
+    String category,
+    String logUsername,
+    String logTeamId, {
+    bool isOnline = true,
+    bool isPublic = false,
+  }) async {
+    final oldLog = logsNotifier.value[index];
+
+    final updatedLog = LogModel(
+      id: oldLog.id,
+      title: newTitle,
+      description: newDesc,
+      date: DateTime.now(),
+      username: logUsername,
+      category: category,
+      teamId: oldLog.teamId,
+      isSynced: false,
+      isPublic: isPublic,
+    );
+
+    // 1. Update di Hive lokal dulu
+    final hiveIndex = _myBox.values.toList().indexWhere(
+      (l) => l.id == oldLog.id,
+    );
+    if (hiveIndex != -1) {
+      await _myBox.putAt(hiveIndex, updatedLog);
+    }
+
+    // 2. Update state in-memory
+    final allIndex = _allLogs.indexWhere((l) => l.id == oldLog.id);
+    if (allIndex != -1) _allLogs[allIndex] = updatedLog;
+    _applyFilters();
+
+    if (!isOnline) {
+      await LogHelper.writeLog(
+        'OFFLINE: Update disimpan lokal (pending sync)',
+        source: 'log_controller.dart',
+        level: 2,
+      );
+      return;
+    }
+
+    try {
+      await MongoService().updateLog(updatedLog);
+      await _updateHiveSyncStatus(updatedLog.id!, isSynced: true);
+      await LogHelper.writeLog(
+        "SYNCED: Update '${updatedLog.title}' berhasil ke cloud",
+        source: 'log_controller.dart',
+        level: 2,
+      );
+    } catch (e) {
+      await LogHelper.writeLog(
+        'OFFLINE: Update gagal ke cloud, disimpan lokal — $e',
+        source: 'log_controller.dart',
+        level: 1,
+      );
+    }
+  }
+
+  /// Hapus log. Jika online, hapus dari cloud dan Hive.
+  /// Jika offline, hapus dari Hive dan queue ID ke pending_deletes.
+  Future<void> removeLog(LogModel log, {bool isOnline = true}) async {
+    if (log.id == null) return;
+
+    // 1. Hapus dari Hive lokal
+    final hiveIndex = _myBox.values.toList().indexWhere(
+      (l) => l.id == log.id,
+    );
+    if (hiveIndex != -1) await _myBox.deleteAt(hiveIndex);
+
+    // 2. Hapus dari state in-memory
+    _allLogs.removeWhere((item) => item.id == log.id);
+    _applyFilters();
+
+    if (!isOnline) {
+      // Queue untuk dihapus di cloud nanti (hanya jika sebelumnya sudah di cloud)
+      if (log.isSynced) {
+        await _pendingDeletesBox.add(log.id!);
+      }
+      await LogHelper.writeLog(
+        'OFFLINE: Hapus disimpan lokal (pending sync)',
+        source: 'log_controller.dart',
+        level: 2,
+      );
+      return;
+    }
+
+    // 3. Jika online, hapus dari cloud
+    try {
+      await MongoService().deleteLog(log.id!);
+      await LogHelper.writeLog(
+        "SYNCED: Hapus '${log.title}' berhasil dari cloud",
+        source: 'log_controller.dart',
+        level: 2,
+      );
+    } catch (e) {
+      // Cloud gagal — masukkan ke pending deletes untuk dicoba lagi nanti
+      await _pendingDeletesBox.add(log.id!);
+      await LogHelper.writeLog(
+        'OFFLINE: Hapus gagal ke cloud, diqueue — $e',
+        source: 'log_controller.dart',
+        level: 1,
+      );
+    }
+  }
+
+  // ============================================================
+  // SYNC
+  // ============================================================
+
+  /// Sinkronisasi semua data pending ke cloud.
+  /// Dipanggil saat koneksi kembali online.
+  Future<void> syncPendingData() async {
+    int syncedCount = 0;
+    int failedCount = 0;
+
+    // 1. Upload semua log yang belum di-sync (isSynced = false)
+    final pendingLogs = _myBox.values.where((l) => !l.isSynced).toList();
+    for (final log in pendingLogs) {
+      try {
+        // Cek apakah sudah ada di cloud (update) atau baru (insert)
+        // Kita coba insert dulu; jika sudah ada akan gagal (duplicate key)
+        await MongoService().insertLog(log);
+        await _updateHiveSyncStatus(log.id!, isSynced: true);
+        syncedCount++;
+      } catch (e) {
+        // Mungkin sudah ada di cloud (jika sebelumnya upload sebagian)
+        // Coba update sebagai fallback
+        try {
+          await MongoService().updateLog(log);
+          await _updateHiveSyncStatus(log.id!, isSynced: true);
+          syncedCount++;
+        } catch (_) {
+          failedCount++;
+        }
+      }
+    }
+
+    // 2. Proses hapus yang tertunda
+    final pendingDeletes = _pendingDeletesBox.values.toList();
+    for (final id in pendingDeletes) {
+      try {
+        await MongoService().deleteLog(id);
+      } catch (_) {
+        failedCount++;
+      }
+    }
+    if (pendingDeletes.isNotEmpty) await _pendingDeletesBox.clear();
+
+    await LogHelper.writeLog(
+      'SYNC: Selesai — $syncedCount berhasil, $failedCount gagal',
+      source: 'log_controller.dart',
+      level: 2,
+    );
+
+    // 3. Refresh in-memory state dari Hive
+    loadFromHive();
+  }
+
+  /// Berapa banyak data yang belum tersinkronisasi?
+  int get pendingSyncCount =>
+      _myBox.values.where((l) => !l.isSynced).length +
+      _pendingDeletesBox.length;
+
+  // ============================================================
+  // FILTER & SEARCH
+  // ============================================================
 
   void searchLog(String query) {
     searchQuery = query;
@@ -90,7 +276,7 @@ class LogController {
 
   void _applyFilters() {
     var filtered = _allLogs;
-    if (filterCategory != "All") {
+    if (filterCategory != 'All') {
       filtered = filtered.where((l) => l.category == filterCategory).toList();
     }
     if (searchQuery.isNotEmpty) {
@@ -104,104 +290,90 @@ class LogController {
         return titleMatch || descMatch;
       }).toList();
     }
-    // IMPORTANT: Assign list baru agar ValueNotifier bisa merespons perubahaan (Reactive)
     logsNotifier.value = List.from(filtered);
   }
 
-  // 2. Memperbarui data di Cloud (HOTS: Sinkronisasi Terjamin)
-  Future<void> updateLog(
-    int index,
-    String newTitle,
-    String newDesc,
-    String category,
-    String username,
-    String role,
-  ) async {
-    final oldLog = logsNotifier.value[index];
+  // ============================================================
+  // PERSISTENCE
+  // ============================================================
 
-    final updatedLog = LogModel(
-      id: oldLog.id, // ID harus tetap sama agar MongoDB mengenali dokumen ini
-      title: newTitle,
-      description: newDesc,
-      date: DateTime.now(),
-      username: username,
-      category: category,
-      teamId: '',
-    );
-
+  /// Ambil dari cloud, filter visibilitas, simpan ke Hive
+  Future<bool> loadFromDisk(String teamId) async {
     try {
-      // 1. Jalankan update di MongoService (Tunggu konfirmasi Cloud)
-      await MongoService().updateLog(updatedLog);
-
-      // 2. Jika sukses, baru perbarui state lokal
-      final allIndex = _allLogs.indexWhere((l) => l.id == oldLog.id);
-      if (allIndex != -1) {
-        _allLogs[allIndex] = updatedLog;
-      }
+      final allTeamLogs = await MongoService().getLogs(teamId);
+      // Filter: tampilkan log sendiri + log public milik sesama tim
+      final visibleLogs = allTeamLogs
+          .where((log) => log.username == username || log.isPublic)
+          .toList();
+      _allLogs = visibleLogs;
       _applyFilters();
 
+      // Sinkronisasi semua visible logs ke Hive
+      await _syncToHive(visibleLogs);
+
       await LogHelper.writeLog(
-        "SUCCESS: Sinkronisasi Update '${oldLog.title}' Berhasil",
-        source: "log_controller.dart",
+        'CONTROLLER: Fetch ${visibleLogs.length} log dari ${allTeamLogs.length} total tim',
+        source: 'log_controller.dart',
         level: 2,
       );
+      return true;
     } catch (e) {
       await LogHelper.writeLog(
-        "ERROR: Gagal sinkronisasi Update - $e",
-        source: "log_controller.dart",
+        'CONTROLLER: loadFromDisk gagal, fallback ke Hive — $e',
+        source: 'log_controller.dart',
         level: 1,
       );
-      // Data di UI tidak berubah jika proses di Cloud gagal
+      loadFromHive();
+      return false;
     }
   }
 
-  // 3. Menghapus data dari Cloud (HOTS: Sinkronisasi Terjamin)```dart
-  Future<void> removeLog(LogModel log) async {
-    try {
-      if (log.id == null) {
-        throw Exception(
-          "ID Log tidak ditemukan, tidak bisa menghapus di Cloud.",
-        );
-      }
-
-      // 1. Hapus data di MongoDB Atlas (Tunggu konfirmasi Cloud)
-      await MongoService().deleteLog(log.id! as ObjectId);
-
-      // 2. Jika sukses, baru hapus dari state lokal
-      _allLogs.removeWhere((item) => item.id == log.id);
-      _applyFilters();
-
-      await LogHelper.writeLog(
-        "SUCCESS: Sinkronisasi Hapus '${log.title}' Berhasil",
-        source: "log_controller.dart",
-        level: 2,
-      );
-    } catch (e) {
-      await LogHelper.writeLog(
-        "ERROR: Gagal sinkronisasi Hapus - $e",
-        source: "log_controller.dart",
-        level: 1,
-      );
+  /// Simpan semua log ke Hive (menggantikan isi lama)
+  Future<void> _syncToHive(List<LogModel> logs) async {
+    await _myBox.clear();
+    for (final log in logs) {
+      await _myBox.add(log);
     }
   }
 
-  // --- BARU: FUNGSI PERSISTENCE (SINKRONISASI JSON) ---
-
-  // Fungsi untuk menyimpan seluruh List ke penyimpanan lokal
-  Future<void> saveToDisk() async {
-    final prefs = await SharedPreferences.getInstance();
-    // Mengubah List of Object -> List of Map -> String JSON
-    final String encodedData = jsonEncode(
-      logsNotifier.value.map((log) => log.toMap()).toList(),
-    );
-    await prefs.setString(_storageKey, encodedData);
-  }
-
-  // Ganti pemanggilan SharedPreferences menjadi MongoService
-  Future<void> loadFromDisk(String teamId) async {
-    // Mengambil dari Cloud, bukan lokal
-    final cloudData = await MongoService().getLogs(teamId);
-    _allLogs = cloudData;
+  /// Load dari Hive lokal (digunakan saat offline)
+  void loadFromHive() {
+    final localLogs = _myBox.values.toList();
+    _allLogs = localLogs;
     _applyFilters();
+  }
+
+  // ============================================================
+  // HELPERS
+  // ============================================================
+
+  /// Update status isSynced sebuah log di Hive berdasarkan ID-nya
+  Future<void> _updateHiveSyncStatus(
+    String logId, {
+    required bool isSynced,
+  }) async {
+    final hiveList = _myBox.values.toList();
+    final index = hiveList.indexWhere((l) => l.id == logId);
+    if (index == -1) return;
+
+    final existing = hiveList[index];
+    final updated = LogModel(
+      id: existing.id,
+      title: existing.title,
+      description: existing.description,
+      date: existing.date,
+      username: existing.username,
+      category: existing.category,
+      teamId: existing.teamId,
+      isSynced: isSynced,
+    );
+    await _myBox.putAt(index, updated);
+
+    // Juga update state in-memory agar UI langsung refresh
+    final memIndex = _allLogs.indexWhere((l) => l.id == logId);
+    if (memIndex != -1) {
+      _allLogs[memIndex] = updated;
+      _applyFilters();
+    }
   }
 }

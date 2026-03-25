@@ -20,14 +20,14 @@ class LoginController {
       username: "maulana",
       password: "2808",
       role: "Anggota",
-      teamId: "2",
+      teamId: "1",
     ),
     "farras": UserModel(
       id: "3",
       username: "farras",
       password: "1502",
       role: "Asisten",
-      teamId: "3",
+      teamId: "1",
     ),
   };
 

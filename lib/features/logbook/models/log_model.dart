@@ -19,6 +19,10 @@ class LogModel {
   final String category;
   @HiveField(6)
   final String teamId;
+  @HiveField(7)
+  final bool isSynced;
+  @HiveField(8)
+  final bool isPublic; // true = bisa dilihat sesama tim
 
   LogModel({
     this.id,
@@ -28,33 +32,45 @@ class LogModel {
     required this.username,
     required this.category,
     required this.teamId,
+    this.isSynced = true,
+    this.isPublic = false, // default private
   });
 
   // [CONVERT] Memasukkan data ke "Kardus" (BSON/Map) untuk dikirim ke Cloud
   Map<String, dynamic> toMap() {
     return {
-      '_id': id != null
-          ? ObjectId.fromHexString(id!)
-          : ObjectId(), // Buat ID otomatis jika belum ada
+      '_id': id != null ? ObjectId.fromHexString(id!) : ObjectId(),
       'title': title,
       'description': description,
-      'date': date.toIso8601String(), // Simpan tanggal dalam format standar
+      'date': date.toIso8601String(),
       'username': username,
       'category': category,
       'teamId': teamId,
+      'isPublic': isPublic,
     };
   }
 
   // [REVERT] Membongkar "Kardus" (BSON/Map) kembali menjadi objek Flutter
   factory LogModel.fromMap(Map<String, dynamic> map) {
+    String? id;
+    if (map['_id'] is ObjectId) {
+      id = (map['_id'] as ObjectId).oid;
+    } else if (map['_id'] is String && (map['_id'] as String).isNotEmpty) {
+      id = map['_id'] as String;
+    }
+    final isPublic = map['isPublic'] == true;
+
     return LogModel(
-      id: (map['_id'] as ObjectId?)?.oid,
+      id: id,
       title: map['title'] ?? '',
       description: map['description'] ?? '',
-      date: map['date'] != null ? DateTime.parse(map['date']) : DateTime.now(),
+      date: map['date'] != null
+          ? DateTime.parse(map['date'].toString())
+          : DateTime.now(),
       username: map['username'] ?? 'unknown_user',
       category: map['category'] ?? '',
       teamId: map['teamId'] ?? 'no_team',
+      isPublic: isPublic,
     );
   }
 }
