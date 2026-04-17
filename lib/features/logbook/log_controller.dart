@@ -109,7 +109,7 @@ class LogController {
       title: newTitle,
       description: newDesc,
       date: DateTime.now(),
-      username: logUsername,
+      username: oldLog.username,
       category: category,
       teamId: oldLog.teamId,
       isSynced: false,
@@ -161,9 +161,7 @@ class LogController {
     if (log.id == null) return;
 
     // 1. Hapus dari Hive lokal
-    final hiveIndex = _myBox.values.toList().indexWhere(
-      (l) => l.id == log.id,
-    );
+    final hiveIndex = _myBox.values.toList().indexWhere((l) => l.id == log.id);
     if (hiveIndex != -1) await _myBox.deleteAt(hiveIndex);
 
     // 2. Hapus dari state in-memory

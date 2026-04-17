@@ -29,6 +29,13 @@ class LoginController {
       role: "Asisten",
       teamId: "1",
     ),
+    "andi": UserModel(
+      id: "4",
+      username: "andi",
+      password: "123",
+      role: "Ketua",
+      teamId: "2",
+    ),
   };
 
   // Fungsi pengecekan (Logic-Only)

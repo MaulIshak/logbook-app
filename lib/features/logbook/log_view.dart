@@ -23,7 +23,7 @@ class _LogViewState extends State<LogView> {
     widget.currentUser.teamId,
     widget.currentUser.username,
   );
-  final _formKey = GlobalKey<FormState>();
+
   bool _isLoading = false;
   bool _isOffline = false;
   String? _errorMessage;
@@ -397,20 +397,7 @@ class _LogViewState extends State<LogView> {
                   );
                 }
 
-                // if (currentLogs.isEmpty) {
-                //   return Center(
-                //     child: Column(
-                //       mainAxisAlignment: MainAxisAlignment.center,
-                //       children: [
-                //         Image(image: AssetImage("assets/images/empty.png")),
-                //         Text(
-                //           "Belum ada catatan",
-                //           style: textTheme.headlineSmall,
-                //         ),
-                //       ],
-                //     ),
-                //   );
-                // }
+
                 return RefreshIndicator(
                   onRefresh: _refresh,
                   child: ListView.builder(
@@ -551,168 +538,12 @@ class _LogViewState extends State<LogView> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        // onPressed: _showAddLogDialog,
-        onPressed: () =>
-            _goToEditor(), // Panggil fungsi dialog yang baru dibuat
+        onPressed: () => _goToEditor(),
         child: const Icon(Icons.add),
       ),
     );
   }
 
-  // 1. Tambahkan Controller untuk menangkap input di dalam State
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _contentController = TextEditingController();
-  String? selectedCategory;
-
-  void _showAddLogDialog() {
-    selectedCategory = null;
-    _titleController.clear();
-    _contentController.clear();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Tambah Catatan Baru"),
-        content: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min, // Agar dialog tidak memenuhi layar
-            children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(hintText: "Judul Catatan"),
-                validator: (value) => value == null || value.isEmpty
-                    ? "Judul tidak boleh kosong"
-                    : null,
-              ),
-              TextFormField(
-                controller: _contentController,
-                decoration: const InputDecoration(hintText: "Isi Deskripsi"),
-                validator: (value) => value == null || value.isEmpty
-                    ? "Deskripsi tidak boleh kosong"
-                    : null,
-              ),
-              DropdownButtonFormField<String>(
-                initialValue: selectedCategory,
-                onChanged: (value) => setState(() => selectedCategory = value),
-                items: _controller.categories
-                    .map(
-                      (category) => DropdownMenuItem(
-                        value: category,
-                        child: Text(category),
-                      ),
-                    )
-                    .toList(),
-                decoration: const InputDecoration(hintText: "Kategori"),
-                validator: (value) =>
-                    value == null ? "Kategori harus dipilih" : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context), // Tutup tanpa simpan
-            child: const Text("Batal"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (!_formKey.currentState!.validate()) return;
-
-              // Jalankan fungsi tambah di Controller
-              _controller.addLog(
-                _titleController.text,
-                _contentController.text,
-                selectedCategory!,
-                widget.currentUser.username,
-                widget.currentUser.teamId,
-              );
-
-              // Trigger UI Refresh
-              setState(() {});
-
-              // Bersihkan input dan tutup dialog
-              _titleController.clear();
-              _contentController.clear();
-              Navigator.pop(context);
-            },
-            child: const Text("Simpan"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditLogDialog(int index, LogModel log) {
-    _titleController.text = log.title;
-    _contentController.text = log.description;
-    selectedCategory = log.category;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Edit Catatan"),
-        content: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(hintText: "Judul Catatan"),
-                validator: (value) => value == null || value.isEmpty
-                    ? "Judul tidak boleh kosong"
-                    : null,
-              ),
-              TextFormField(
-                controller: _contentController,
-                decoration: const InputDecoration(hintText: "Isi Deskripsi"),
-                validator: (value) => value == null || value.isEmpty
-                    ? "Deskripsi tidak boleh kosong"
-                    : null,
-              ),
-              DropdownButtonFormField<String>(
-                initialValue: selectedCategory,
-                onChanged: (value) => setState(() => selectedCategory = value),
-                items: _controller.categories
-                    .map(
-                      (category) => DropdownMenuItem(
-                        value: category,
-                        child: Text(category),
-                      ),
-                    )
-                    .toList(),
-                decoration: const InputDecoration(hintText: "Kategori"),
-                validator: (value) =>
-                    value == null ? "Kategori harus dipilih" : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Batal"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (!_formKey.currentState!.validate()) return;
-              _controller.updateLog(
-                index,
-                _titleController.text,
-                _contentController.text,
-                selectedCategory!,
-                widget.currentUser.username,
-                widget.currentUser.teamId,
-              );
-              _titleController.clear();
-              _contentController.clear();
-              Navigator.pop(context);
-            },
-            child: const Text("Update"),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showDeleteLogDialog(LogModel log) {
     showDialog(

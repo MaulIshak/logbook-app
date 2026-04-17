@@ -1,83 +1,73 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CounterController {
-  int _counter = 0; // _ for private
-  int step = 1;
-  int get value => _counter; // getter
-  List<String> histories = [];
-  String username;
-  CounterController({required this.username});
+  int _counter = 0; // Variabel private (Enkapsulasi)
+  int _step = 1; // default step = 1
 
-  Future<void> init() async {
-    _counter = await loadLastValue();
-    histories = await loadHistories();
+  final List<String> _history = []; // variable riwayat penambahan step
+
+  int get value => _counter; // Getter untuk akses data
+  int get step => _step; // Getter untuk akses nilai step
+  List<String> get history => _history; // Getter akses data riwayat
+
+  // load data dari counter
+  Future<void> loadCounter(String username) async {
+    final prefs = await SharedPreferences.getInstance();
+    _counter = prefs.getInt("counter_$username") ?? 0;
   }
 
-  Future<void> increment() async {
-    if (step == 0) return;
-    _counter += step;
-    histories.add(
-      '${_formatDate(DateTime.now().toIso8601String())}|+$step, count: $_counter',
-    );
-    removeTrash();
-    await saveAll();
+  // simpan ke storage
+  Future<void> saveCounter(String username) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt("counter_$username", _counter);
   }
 
-  Future<void> decrement() async {
-    if (step == 0) return;
-    _counter -= step;
-    histories.add(
-      '${_formatDate(DateTime.now().toIso8601String())}|-$step, count: $_counter',
-    );
-    removeTrash();
-    await saveAll();
+  // Atur nilai step
+  void setStep(int value) {
+    if (value > 0) {
+      _step = value;
+    }
   }
 
-  Future<void> reset() async {
-    if (_counter != 0) {
+  // add history counter
+  void _addHistory(String username, String message) {
+    DateTime now = DateTime.now();
+    String time =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} "
+        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
+
+    _history.insert(0, "User $username $message pada jam $time");
+
+    if (_history.length > 5) {
+      _history.removeLast();
+    }
+  }
+
+  //void increment() => _counter++;
+  // Increment menggunakan step
+  Future<void> increment(String username) async {
+    _counter += _step;
+    _addHistory(username, "menambah nilai sebesar $_step");
+
+    await saveCounter(username); // simpan counter ke data lokal
+  }
+
+  // Decrement menggunakan step
+  Future<void> decrement(String username) async {
+    if (_counter - _step >= 0) {
+      _counter -= _step;
+    } else {
       _counter = 0;
-      histories.add('${_formatDate(DateTime.now().toIso8601String())}|reset');
-      removeTrash();
-      await saveAll();
     }
+    _addHistory(username, "mengurangi nilai sebesar $_step");
+
+    await saveCounter(username); // simpan counter ke data lokal
   }
 
-  String _formatDate(String dateTime) {
-    return dateTime.split(".").first;
-  }
+  Future<void> reset(String username) async {
+    _counter = 0;
+    _addHistory(username, "mereset counter");
 
-  void removeTrash() {
-    if (histories.length > 5) {
-      histories.removeAt(0);
-    }
-  }
-
-  // Data Saving
-  // Fungsi untuk menyimpan angka terakhir
-  Future<void> saveLastValue() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('${username}_last_counter', _counter);
-    // 'last_counter' adalah Kunci (Key) untuk memanggil data nanti
-  }
-
-  Future<int> loadLastValue() async {
-    final prefs = await SharedPreferences.getInstance();
-    // Ambil nilai berdasarkan Key, jika kosong (null) berikan nilai default 0
-    return prefs.getInt('${username}_last_counter') ?? 0;
-  }
-
-  Future<void> saveHistories() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('${username}_histories', histories);
-  }
-
-  Future<List<String>> loadHistories() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList('${username}_histories') ?? [];
-  }
-
-  Future<void> saveAll() async {
-    await saveLastValue();
-    await saveHistories();
+    await saveCounter(username); // simpan counter ke data lokal
   }
 }
