@@ -9,6 +9,7 @@ import 'package:my_logbook_app/features/logbook/log_editor_page.dart';
 import 'package:my_logbook_app/features/logbook/models/log_model.dart';
 import 'package:my_logbook_app/features/onboarding/onboarding_view.dart';
 import 'package:my_logbook_app/services/access_control_service.dart';
+import 'package:my_logbook_app/features/vision/vision_view.dart';
 
 class LogView extends StatefulWidget {
   final UserModel currentUser;
@@ -46,19 +47,18 @@ class _LogViewState extends State<LogView> {
 
   /// Mulai listening perubahan koneksi internet secara real-time
   void _startConnectivityListener() {
-    _connectivitySubscription = Connectivity()
-        .onConnectivityChanged
-        .listen((List<ConnectivityResult> results) {
-      final isNowOnline = results.any(
-        (r) => r != ConnectivityResult.none,
-      );
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      List<ConnectivityResult> results,
+    ) {
+      final isNowOnline = results.any((r) => r != ConnectivityResult.none);
 
       if (!isNowOnline && !_isOffline && !_isLoading) {
         // Baru saja offline
         if (mounted) {
           setState(() {
             _isOffline = true;
-            _errorMessage = 'Koneksi internet terputus. Menampilkan data lokal.';
+            _errorMessage =
+                'Koneksi internet terputus. Menampilkan data lokal.';
           });
           _controller.loadFromHive();
         }
@@ -116,16 +116,15 @@ class _LogViewState extends State<LogView> {
         if (mounted) {
           setState(() {
             _isOffline = true;
-            _errorMessage = 'Tidak ada koneksi internet. Menampilkan data lokal.';
+            _errorMessage =
+                'Tidak ada koneksi internet. Menampilkan data lokal.';
           });
         }
         return;
       }
 
       // Ada koneksi — coba ambil dari cloud
-      final success = await _controller.loadFromDisk(
-        widget.currentUser.teamId,
-      );
+      final success = await _controller.loadFromDisk(widget.currentUser.teamId);
 
       if (mounted && !success) {
         setState(() {
@@ -156,15 +155,12 @@ class _LogViewState extends State<LogView> {
       return;
     }
     // Coba sync ke cloud, loadFromDisk sudah aman (tidak throw)
-    final success = await _controller.loadFromDisk(
-      widget.currentUser.teamId,
-    );
+    final success = await _controller.loadFromDisk(widget.currentUser.teamId);
     if (mounted) {
       setState(() {
         _isOffline = !success;
         if (!success) {
-          _errorMessage =
-              'Gagal sinkronisasi. Menampilkan data lokal.';
+          _errorMessage = 'Gagal sinkronisasi. Menampilkan data lokal.';
         }
       });
     }
@@ -261,7 +257,8 @@ class _LogViewState extends State<LogView> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _errorMessage ?? 'Anda sedang offline. Menampilkan data lokal.',
+                      _errorMessage ??
+                          'Anda sedang offline. Menampilkan data lokal.',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w500,
@@ -372,7 +369,9 @@ class _LogViewState extends State<LogView> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Image(image: const AssetImage("assets/images/empty.png")),
+                        Image(
+                          image: const AssetImage("assets/images/empty.png"),
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           _isOffline
@@ -397,15 +396,13 @@ class _LogViewState extends State<LogView> {
                   );
                 }
 
-
                 return RefreshIndicator(
                   onRefresh: _refresh,
                   child: ListView.builder(
                     itemCount: currentLogs.length,
                     itemBuilder: (context, index) {
                       final log = currentLogs[index];
-                      final isOwn =
-                          log.username == widget.currentUser.username;
+                      final isOwn = log.username == widget.currentUser.username;
                       final canEdit = AccessControlService.canPerform(
                         widget.currentUser.role,
                         AccessControlService.actionUpdate,
@@ -512,10 +509,8 @@ class _LogViewState extends State<LogView> {
                                     Icons.edit,
                                     color: Colors.blue,
                                   ),
-                                  onPressed: () => _goToEditor(
-                                    log: log,
-                                    index: index,
-                                  ),
+                                  onPressed: () =>
+                                      _goToEditor(log: log, index: index),
                                 ),
                               if (canDelete)
                                 IconButton(
@@ -537,13 +532,24 @@ class _LogViewState extends State<LogView> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _goToEditor(),
-        child: const Icon(Icons.add),
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            onPressed: () => _goToEditor(),
+            child: const Icon(Icons.add),
+          ),
+          FloatingActionButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const VisionView()),
+            ),
+            child: const Icon(Icons.camera_alt),
+          ),
+        ],
       ),
     );
   }
-
 
   void _showDeleteLogDialog(LogModel log) {
     showDialog(
